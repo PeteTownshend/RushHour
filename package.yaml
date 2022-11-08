@@ -23,6 +23,7 @@ dependencies:
 - base >= 4.7 && < 5
 
 ghc-options:
+- -O2
 - -Wall
 - -Wcompat
 - -Widentities
@@ -57,3 +58,4 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - RushHour
+    - hspec

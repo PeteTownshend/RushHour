@@ -1,101 +1,161 @@
-{-# OPTIONS_GHC -Wno-unused-top-binds #-}
+{-# LANGUAGE TupleSections #-}
 module Lib
-    ( someFunc
-    ) where
+    ( someFunc,
+      isHorizontal,
+      merge,
+      freecells,
+      moves,
+      singlemove,
+      move,
+      solved,
+      bfsolve,
+      goalmoves,
+      covers,
+      blocker,
+      freeingmoves,
+      premoves,
+      expands,
+      newplans,
+      psearch,
+      psolve ) where
 
 import Data.List ((\\))
 
-someFunc :: IO ()
-someFunc = mapM_ print psolution1
+{-- junction
+     1   2   3   4   5   6
+     8   9  10  11  12  13
+    15  16  17  18  19  20
+    22  23  24  25  26  27
+    29  30  31  32  33  34
+    36  37  38  39  40  41
 
-type Cell     = Int
-type Grid     = [(Cell, Cell)]
-type Vehicle  = Int
-type Move     = (Vehicle, Cell)
-type Path     = ([Move], Grid)          -- sequence of moves together with the resulting state
-type Frontier = [Path]                  -- list of paths waiting to be explored further
-type Plan     = [Move]
-type APath = ([Move], Grid, Plan)       -- augmented path of moves already made from some starting state
+    x x x x x-x
+    | | | |
+    x x x x x x  
+    |       | |
+    x . x-x x x
+              |
+    . . x-x-x x
+               
+    . . x . x-x
+        |
+    x-x x . x-x
+--}
+
+someFunc :: IO ()
+someFunc = print "done"
+
+type Cell      = Int
+type Grid      = [(Cell, Cell)]
+type Vehicle   = Int
+type Move      = (Vehicle, Cell)
+type Path      = ([Move], Grid)          -- sequence of moves together with the resulting state
+type Frontier  = [Path]                  -- list of paths waiting to be explored further
+type Plan      = [Move]
+type APath     = ([Move], Grid, Plan)    -- augmented path of moves already made from some starting state
 type AFrontier = [APath]
+
+isHorizontal :: (Cell, Cell) -> Bool
+isHorizontal (r, f) = r > f - 7
+
+merge :: [Cell] -> [Cell] -> [Cell]
+merge xs [] = xs
+merge [] ys = ys
+merge (x:xs) (y:ys)
+    | x < y     = x:merge xs (y:ys)
+    | otherwise = y:merge (x:xs) ys
 
 freecells :: Grid -> [Cell]
 freecells grid = allcells \\ occupied
     where
         allcells = [c | c <- [1..41], c `mod` 7 /= 0]
         occupied = foldr (merge . fillcells) [] grid
-        merge xs [] = xs
-        merge [] ys = ys
-        merge (x:xs) (y:ys)
-            | x < y     = x:merge xs (y:ys)
-            | otherwise = y:merge (x:xs) ys
-        fillcells (r, f) = if r > f - 7 then [r .. f] else [r, r + 7 .. f]
+        fillcells p@(r, f) = if isHorizontal p then [r .. f] else [r, r + 7 .. f]
 
+-- returns all possible moves of a given grid
 moves :: Grid -> [Move]
-moves grid = [(v, c) | (v, i) <- zip [0..] grid, c <- adjs i, c `elem` freecells grid]
+moves grid = [(v, c) | (v, i) <- zip [0..] grid, c <- adjs i, c `elem` fs]
      where
-        adjs (r, f) = if r > f - 7 then [f + 1, r - 1] else [f + 7, r - 7]
+        fs = freecells grid
+        adjs p@(r, f) = if isHorizontal p then [f + 1, r - 1] else [f + 7, r - 7]
+
+-- detects wether cell is part of a vehicle
+covers :: Cell -> (Cell, Cell) -> Bool
+covers c (r, f) = r <= c && c <= f && (r > f - 7 || (c - r) `mod` 7 == 0)
+
+singlemove :: (Cell, Cell) -> Cell -> (Cell, Cell)
+singlemove p@(r, f) c
+    | covers c p          = p
+    | horizontal && c > f = (r + 1, f + 1)
+    | horizontal          = (r - 1, f - 1)
+    | c < r               = (r - 7, f - 7)
+    | otherwise           = (r + 7, f + 7)
+    where horizontal = isHorizontal p
 
 move :: Grid -> Move -> Grid
-move grid (vehicle, cell) = grid1 ++ adjust i cell : grid2
-    where
-        (grid1, i:grid2) = splitAt vehicle grid
-        adjust (r, f) c
-            | r > f - 7 = if c > 7 then (r + 1, c) else (c, f - 1)
-            | otherwise = if c < r then (c, f - 7) else (r + 7, c)
+move g (v, c) = case splitAt v g of
+    (g1, [])   -> g1
+    (g1, [i])  -> g1 ++ [singlemove i c]
+    (g1, i:g2) -> g1 ++ singlemove i c : g2
 
+-- a grid solved if the front of vehicle 0 is at exit cell
 solved :: Grid -> Bool
-solved grid = snd (head grid) == 20 -- a grid solved if the front of vehicle 0 is at exit cell
+solved grid = snd (head grid) == 20
 
--- breadth-first strategy
+{-- breadth-first strategy --}
 bfsolve :: Grid -> Maybe [Move]
 bfsolve grid = bfsearch' [] [] [([], grid)]
-
-bfsearch' :: [Grid] -> Frontier -> Frontier -> Maybe [Move]
-bfsearch' _  [] [] =  Nothing
-bfsearch' qs rs [] =  bfsearch' qs [] rs
-bfsearch' qs rs (p@(ms, q) : ps)
-    |   solved q    = Just ms
-    |   q `elem` qs = bfsearch' qs rs ps
-    |   otherwise   = bfsearch' (q:qs) (succs p ++ rs) ps
     where
-        succs (mvs, g) = [(mvs ++ [m], move g m) | m <- moves g]
+        bfsearch' :: [Grid] -> Frontier -> Frontier -> Maybe [Move]
+        bfsearch' _  [] [] =  Nothing
+        bfsearch' qs rs [] =  bfsearch' qs [] rs
+        bfsearch' qs rs (p@(ms, q) : ps)
+            | solved q    = Just ms
+            | q `elem` qs = bfsearch' qs rs ps
+            | otherwise   = bfsearch' (q:qs) (succs p ++ rs) ps
+            where
+                succs (mvs, g) = [(mvs ++ [m], move g m) | m <- moves g]
 
+{-- planning strategy --}
+
+-- gives the list of moves required to step the special vehicle to the exit
 goalmoves :: Grid -> Plan
-goalmoves g = [(0, c) | c <- [snd (head g) + 1..20]]
+goalmoves g = [(0, c) | c <- [snd (head g) + 1 .. 20]]
 
-blocker :: Grid -> Cell -> (Vehicle, (Cell, Cell))
+-- if exists it detects the vechile occupiing the given cell
+blocker :: Grid -> Cell -> Maybe (Vehicle, (Cell, Cell))
 blocker grid = search (zip [0..] grid)
     where
-        covers c (r, f) = r <= c && c <= f && (r > f - 7 || (c - r) `mod` 7 == 0)
-        search ((v, i) : vis) c = if covers c i then (v, i) else search vis c
+        search []           _ = Nothing
+        search ((v, i):vis) c = if covers c i then Just (v, i) else search vis c
 
-freeingmoves :: Cell -> (Vehicle, (Cell, Cell)) -> [[Move]]
-freeingmoves c (v, (r, f))
-    | r > f - 7 = [[(v, j) | j <- [f + 1 .. c + n]] | c + n < k + 7] ++
-                  [[(v, j) | j <- [r - 1, r - 2  .. c - n]] | c - n > k]
-    | otherwise = [[(v, j) | j <- [r - 7, r - 14 .. c - m]] | c - m > 0] ++
-                  [[(v, j) | j <- [f + 7, f + 14 .. c + m]] | c + m < 42]
-    where (k, m, n) = (f - f `mod` 7, f - r + 7, f - r + 1)
+freeingmoves :: Cell -> (Cell, Cell) -> [[Cell]]
+freeingmoves c p@(r, f)
+    | not $ covers c p = []
+    | isHorizontal p   = [[f + 1, f +  2 .. f + c - r + 1] |      f + c - r + 1 < h +  7] ++
+                         [[r - 1, r -  2 .. r + c - f - 1] | h <  r + c - f - 1         ]
+    | otherwise        = [[r - 7, r - 14 .. r + c - f - 7] | v <= r + c - f - 7         ] ++
+                         [[f + 7, f + 14 .. f + c - r + 7] |      f + c - r + 7 < v + 36]
+    where (h, v) = (f - f `mod` 7, r `mod` 7)
 
 premoves :: Grid -> Move -> [[Move]]
-premoves g (_, c) = freeingmoves c (blocker g c)
+premoves g (_, c) = case blocker g c of
+    Just (v, i) -> fmap (fmap (v,)) (freeingmoves c i)
+    Nothing     -> []
 
-expand :: Grid -> Move -> [Move]
-expand g (v, c)
-    | r > f - 7 = if c > f 
-                  then [(v, p) | p <- [f + 1 .. c]]
-                  else [(v, p) | p <- [r - 1, r - 2 .. c]]
-    | otherwise = if c > f  
-                  then [(v, p) | p <- [f + 7, f + 14 .. c]]
-                  else [(v, p) | p <- [r - 7, r - 14 .. c]]
-    where (r, f) = g !! v
+-- expands a possibly invalid move into a sequence of valid moves
+expands :: Grid -> Move -> [Move]
+expands g (v, c) = fmap (v,) cells
+    where
+        p@(r, f) = g!!v
+        cells | isHorizontal p = if c > f then [f + 1, f +  2 .. c] else [r - 1, r -  2 .. c]
+              | otherwise      = if c > f then [f + 7, f + 14 .. c] else [r - 7, r - 14 .. c]
 
 newplans :: Grid -> Plan -> [Plan]
 newplans _ []     = []
-newplans g (m:ms) = mkplans (expand g m ++ ms)
-    where
-        mkplans ns | n `elem` gns = [ns]
-                   | otherwise    = concat [mkplans (pns ++ ns) | pns <- premoves g n, all (`notElem` ns) pns]
+newplans g (m:ms) = mkplans (expands g m ++ ms)
+    where 
+        mkplans ns = if n `elem` gns then [ns] else concat [mkplans (pns ++ ns) | pns <- premoves g n, all (`notElem` ns) pns]
             where 
                 n = head ns
                 gns = moves g
@@ -103,24 +163,13 @@ newplans g (m:ms) = mkplans (expand g m ++ ms)
 psearch :: [Grid] -> AFrontier -> AFrontier -> Maybe [Move]
 psearch _  [] [] = Nothing
 psearch qs rs [] = psearch qs [] rs
-psearch qs rs (p@(ms, q, plan) : ps)
-    | solved q      = Just (reverse ms)
-    | q `elem` qs   = psearch qs rs ps
-    | otherwise     = psearch (q : qs) (bsuccs p ++ rs) (asuccs p ++ ps)
+psearch qs rs (p@(ms, q, _) : ps)
+    | solved q    = Just ms
+    | q `elem` qs = psearch qs rs ps
+    | otherwise   = psearch (q:qs) (bsuccs p ++ rs) (asuccs p ++ ps)
     where
-        asuccs :: APath -> [APath]
-        asuccs (mvs, q, pl) = [(mvs ++ [mv], move q mv, pl') | mv : pl' <- newplans q pl]
-        bsuccs :: APath -> [APath]
-        bsuccs (mvs, q, _) = [(mvs ++ [mv], q', goalmoves q') | mv <- moves q, let q' = move q mv]
+        asuccs (mvs, g, pln) = [(mvs ++ [mv], move g mv, pln')  | mv:pln' <- newplans g pln]
+        bsuccs (mvs, g, _  ) = [(mvs ++ [mv], g', goalmoves g') | mv <- moves g, let g' = move g mv]
 
 psolve :: Grid -> Maybe [Move]
 psolve g = psearch [] [] [([], g, goalmoves g)]
-
-grid1 :: Grid
-grid1 = [(17, 18), (1, 15), (2, 9), (3, 10), (4, 11), (5, 6), (12, 19), (13, 27), (24, 26), (31, 38), (33, 34), (36, 37), (40, 41)]
-
-bfsolution1 :: Maybe [Move]
-bfsolution1 = bfsolve grid1
-
-psolution1 :: Maybe [Move]
-psolution1 = psolve grid1
