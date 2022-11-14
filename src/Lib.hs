@@ -52,8 +52,6 @@ type Move      = (Vehicle, Cell)
 type Path      = ([Move], Grid)          -- sequence of moves together with the resulting state
 type Frontier  = [Path]                  -- list of paths waiting to be explored further
 type Plan      = [Move]
-type APath     = ([Move], Grid, Plan)    -- augmented path of moves already made from some starting state
-type AFrontier = [APath]
 
 isHorizontal :: (Cell, Cell) -> Bool
 isHorizontal (r, f) = r > f - 7
@@ -103,7 +101,7 @@ solved :: Grid -> Bool
 solved grid = snd (head grid) == 20
 
 {-- breadth-first strategy --}
-bfsolve :: Grid -> Maybe [Move]
+bfsolve :: Grid -> Maybe Plan
 bfsolve grid = bfsearch' [] [] [([], grid)]
     where
         bfsearch' :: [Grid] -> Frontier -> Frontier -> Maybe [Move]
@@ -122,13 +120,14 @@ bfsolve grid = bfsearch' [] [] [([], grid)]
 goalmoves :: Grid -> Plan
 goalmoves g = [(0, c) | c <- [snd (head g) + 1 .. 20]]
 
--- if exists it detects the vechile occupiing the given cell
+-- detects the vehicle occupiing the given cell
 blocker :: Grid -> Cell -> Maybe (Vehicle, (Cell, Cell))
 blocker grid = search (zip [0..] grid)
     where
         search []           _ = Nothing
         search ((v, i):vis) c = if covers c i then Just (v, i) else search vis c
 
+-- provides sets of list of cells serving as a plan to free a cell occupied by a vehicle
 freeingmoves :: Cell -> (Cell, Cell) -> [[Cell]]
 freeingmoves c p@(r, f)
     | not $ covers c p = []
@@ -138,12 +137,13 @@ freeingmoves c p@(r, f)
                          [[f + 7, f + 14 .. f + c - r + 7] |      f + c - r + 7 < v + 36]
     where (h, v) = (f - f `mod` 7, r `mod` 7)
 
-premoves :: Grid -> Move -> [[Move]]
+-- provides plans to make a move legal
+premoves :: Grid -> Move -> [Plan]
 premoves g (_, c) = case blocker g c of
     Just (v, i) -> fmap (fmap (v,)) (freeingmoves c i)
     Nothing     -> []
 
--- expands a possibly invalid move into a sequence of valid moves
+-- expands a far distance move into a sequence of moves
 expands :: Grid -> Move -> [Move]
 expands g (v, c) = fmap (v,) cells
     where
@@ -151,16 +151,24 @@ expands g (v, c) = fmap (v,) cells
         cells | isHorizontal p = if c > f then [f + 1, f +  2 .. c] else [r - 1, r -  2 .. c]
               | otherwise      = if c > f then [f + 7, f + 14 .. c] else [r - 7, r - 14 .. c]
 
+{-- m: first move in the current plan
+    if m is legal, make it
+--}
 newplans :: Grid -> Plan -> [Plan]
 newplans _ []     = []
-newplans g (m:ms) = mkplans (expands g m ++ ms)
+newplans g (m:ms) = if n `elem` legalmoves 
+                    then [ns] 
+                    else concat [
+                       newplans g (pns ++ ns) | 
+                       pns <- premoves g n, 
+                       all (`notElem` ns) pns
+                    ]
     where 
-        mkplans ns = if n `elem` gns then [ns] else concat [mkplans (pns ++ ns) | pns <- premoves g n, all (`notElem` ns) pns]
-            where 
-                n = head ns
-                gns = moves g
+        ns = expands g m ++ ms
+        n = head ns
+        legalmoves = moves g
 
-psearch :: [Grid] -> AFrontier -> AFrontier -> Maybe [Move]
+psearch :: [Grid] -> [([Move], Grid, Plan)] -> [([Move], Grid, Plan)] -> Maybe [Move]
 psearch _  [] [] = Nothing
 psearch qs rs [] = psearch qs [] rs
 psearch qs rs (p@(ms, q, _) : ps)
@@ -171,5 +179,5 @@ psearch qs rs (p@(ms, q, _) : ps)
         asuccs (mvs, g, pln) = [(mvs ++ [mv], move g mv, pln')  | mv:pln' <- newplans g pln]
         bsuccs (mvs, g, _  ) = [(mvs ++ [mv], g', goalmoves g') | mv <- moves g, let g' = move g mv]
 
-psolve :: Grid -> Maybe [Move]
+psolve :: Grid -> Maybe Plan
 psolve g = psearch [] [] [([], g, goalmoves g)]

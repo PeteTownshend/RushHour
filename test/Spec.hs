@@ -140,15 +140,15 @@ main = hspec $ do
             solved grid `shouldBe` False
             solved [(19, 20), (1, 15), (2, 9), (3, 10), (4, 11), (5, 6), (24, 26), (31, 38), (33, 34), (36, 37), (40, 41)] `shouldBe` True
 
-    describe "breadth-first" $ do
+    describe "breadth-first solving" $ do
 
         it "should be able to find a solution" $ do
 
-            let mmvs = bfsolve grid
-            fmap length mmvs `shouldBe` Just 34
+            let mplan = bfsolve grid
+            fmap length mplan `shouldBe` Just 34
 
-            let msolution = do mvs <- mmvs
-                               let grid' = foldl move grid mvs
+            let msolution = do plan <- mplan
+                               let grid' = foldl move grid plan
                                return (solved grid')
             msolution `shouldBe` Just True
 
@@ -322,21 +322,26 @@ main = hspec $ do
 
         let exps = expands grid
 
-        it "should stick to valid moves" $ do
+        it "should stick to single step moves" $ do
             let validmoves = moves grid
             (validmoves >>= exps) `shouldBe` validmoves
 
-        {-- it "should translate the invalid to a sequence of valid moves" $ do
-            exps (9, 24) `shouldBe` [] --}
+        it "should translate the horizontal far distance move into a sequence of moves" $ do
+            exps (0, 20) `shouldBe` [(0, 19), (0, 20)]
+            exps (8, 22) `shouldBe` [(8, 23), (8, 22)]
 
-    describe "psolve" $ do
+        it "should translate the vertical far distance move into a sequence of moves" $ do
+            exps (7, 41) `shouldBe` [(7, 34), (7, 41)]
+            exps (9,  3) `shouldBe` [(9, 24), (9, 17), (9, 10), (9, 3)]
+
+    describe "planned solving" $ do
 
         it "should be able to find a solution" $ do
 
-            let mmvs = psolve grid
-            fmap length mmvs `shouldBe` Just 38
+            let mplan = psolve grid
+            fmap length mplan `shouldBe` Just 38
 
-            let msolution = do mvs <- mmvs
-                               let grid' = foldl move grid mvs
+            let msolution = do plan <- mplan
+                               let grid' = foldl move grid plan
                                return (solved grid')
             msolution `shouldBe` Just True
